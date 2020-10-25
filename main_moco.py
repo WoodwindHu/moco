@@ -30,8 +30,8 @@ model_names = sorted(name for name in models.__dict__
     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data', metavar='DIR',
-                    help='path to dataset')
+parser.add_argument('--data', default="data", type=str, metavar='DIR',
+                        help='path to dataset')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     choices=model_names,
                     help='model architecture: ' +
@@ -73,11 +73,11 @@ parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
-parser.add_argument('--multiprocessing-distributed', action='store_true',
-                    help='Use multi-processing distributed training to launch '
-                         'N processes per node, which has N GPUs. This is the '
-                         'fastest way to use PyTorch for either single node or '
-                         'multi node data parallel training')
+parser.add_argument('--multiprocessing_distributed', type=int, default=1,
+                        help='Use multi-processing distributed training to launch '
+                             'N processes per node, which has N GPUs. This is the '
+                             'fastest way to use PyTorch for either single node or '
+                             'multi node data parallel training')
 
 # moco specific configs:
 parser.add_argument('--moco-dim', default=128, type=int,
@@ -90,12 +90,17 @@ parser.add_argument('--moco-t', default=0.07, type=float,
                     help='softmax temperature (default: 0.07)')
 
 # options for moco v2
-parser.add_argument('--mlp', action='store_true',
+parser.add_argument('--mlp', type=int, default=1,
                     help='use mlp head')
-parser.add_argument('--aug-plus', action='store_true',
+parser.add_argument('--aug_plus', type=int, default=1,
                     help='use moco v2 data augmentation')
-parser.add_argument('--cos', action='store_true',
+parser.add_argument('--cos', type=int, default=1,
                     help='use cosine lr schedule')
+parser.add_argument("--train_url", default="", type=str, help="Cloud path that specifies the output file path")
+parser.add_argument('--data_url', default="", type=str, help="Cloud path that specifies the datasets")
+parser.add_argument('--save_path', default=".", type=str, help="model and record save path")
+parser.add_argument("--nfs", default=0, type=int, help="use nfs in modelarts")
+parser.add_argument('--cloud', type=int, default=0, help="use cloud service or not")
 
 
 def main():
@@ -121,6 +126,25 @@ def main():
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
 
     ngpus_per_node = torch.cuda.device_count()
+    if args.cloud == 1 and args.nfs == 0:
+        data_path = "/cache/" + args.data
+        # args.resume = data_path + args.resume
+    else:
+        data_path = args.data  # the path stored
+    args.data = data_path
+    params = vars(args)
+    if args.cloud:
+        import moxing as mox
+
+        print('S3 train url: ', params['train_url'])  # print content can be seen in log of modelarts
+        if args.nfs == 0:
+            print('S3 data_url: ', params['data_url'])
+            mox.file.mk_dir(data_path)
+            mox.file.copy_parallel(params['data_url'], data_path)
+            print('CACHE FILES: ', mox.file.list_directory(data_path))
+        # assert params['save_path']!=""
+        args.save_path = '/cache/' + params['save_path']
+        mox.file.mk_dir(params['save_path'])
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
@@ -134,6 +158,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
+    params = vars(args)
     args.gpu = gpu
 
     # suppress printing if not master
@@ -267,12 +292,19 @@ def main_worker(gpu, ngpus_per_node, args):
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
+            tmp_save_path = os.path.join(args.save_path, 'checkpoint_{:04d}.pth.tar'.format(epoch))
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
-            }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
+            }, is_best=False, filename=tmp_save_path)
+            if params['cloud']:
+                # copy the log file and saved model file to the path
+                # mox.file.copy_parallel(log_path, params['train_url'])
+                import moxing as mox
+                model_local_path = os.path.join(params['train_url'], 'checkpoint_{:04d}.pth.tar'.format(epoch))
+                mox.file.copy(tmp_save_path, model_local_path)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
