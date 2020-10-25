@@ -292,19 +292,20 @@ def main_worker(gpu, ngpus_per_node, args):
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
-            tmp_save_path = os.path.join(args.save_path, 'checkpoint_{:04d}.pth.tar'.format(epoch))
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': args.arch,
-                'state_dict': model.state_dict(),
-                'optimizer' : optimizer.state_dict(),
-            }, is_best=False, filename=tmp_save_path)
-            if params['cloud']:
-                # copy the log file and saved model file to the path
-                # mox.file.copy_parallel(log_path, params['train_url'])
-                import moxing as mox
-                model_local_path = os.path.join(params['train_url'], 'checkpoint_{:04d}.pth.tar'.format(epoch))
-                mox.file.copy(tmp_save_path, model_local_path)
+            if epoch % 10 == 9:
+                tmp_save_path = os.path.join(args.save_path, 'checkpoint_{:04d}.pth.tar'.format(epoch))
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'arch': args.arch,
+                    'state_dict': model.state_dict(),
+                    'optimizer' : optimizer.state_dict(),
+                }, is_best=False, filename=tmp_save_path)
+                if params['cloud']:
+                    # copy the log file and saved model file to the path
+                    # mox.file.copy_parallel(log_path, params['train_url'])
+                    import moxing as mox
+                    model_local_path = os.path.join(params['train_url'], 'checkpoint_{:04d}.pth.tar'.format(epoch))
+                    mox.file.copy(tmp_save_path, model_local_path)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
