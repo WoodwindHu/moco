@@ -1,0 +1,5 @@
+Pillow==5.1.0
+tensorboard==1.14.0
+tensorboardX==1.7
+torchlars==0.1.2
+

@@ -21,12 +21,14 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
+from ops.os_operation import mkdir
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('data', metavar='DIR',
+parser.add_argument('--data',type=str, metavar='DIR',
                     help='path to dataset')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     choices=model_names,
@@ -71,7 +73,7 @@ parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
-parser.add_argument('--multiprocessing-distributed', action='store_true',
+parser.add_argument('--multiprocessing-distributed', type=int,default=1,
                     help='Use multi-processing distributed training to launch '
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
@@ -79,6 +81,11 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 
 parser.add_argument('--pretrained', default='', type=str,
                     help='path to moco pretrained checkpoint')
+parser.add_argument("--cloud",type=int,default=0,help="use cloud or not")
+parser.add_argument("--train_url", default="", type=str, help="Cloud path that specifies the output file path")
+parser.add_argument('--data_url', default="", type=str, help="Cloud path that specifies the datasets")
+parser.add_argument('--save_path', default="", type=str, help="model and record save path")
+parser.add_argument('--log_path', type=str, default="train_log", help="log path for saving models")
 
 best_acc1 = 0
 
@@ -104,6 +111,20 @@ def main():
         args.world_size = int(os.environ["WORLD_SIZE"])
 
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
+
+    params = vars(args)
+    if args.cloud == 1:
+        data_path = "/cache/" + args.data
+    else:
+        data_path = args.data  # the path stored
+    # args.data = data_path
+    if args.cloud:
+        import moxing as mox
+        start_path = os.path.join(params['data_url'], args.pretrained)
+        move_to_path = os.path.join(data_path, args.pretrained)
+        mkdir(data_path)
+        mox.file.copy(start_path, move_to_path)
+        args.pretrained = move_to_path
 
     ngpus_per_node = torch.cuda.device_count()
     if args.multiprocessing_distributed:
